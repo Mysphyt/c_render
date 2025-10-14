@@ -30,6 +30,11 @@ typedef int64_t int64;
 void
 RenderGradient(int XOffset, int YOffset)
 {
+    /* 
+        Updates 32 bit (RGBx) Pixel values in BitmapMemory to a gradient
+        based on X and Y coordinates (position) and offset (time)
+    */
+
     // Row width in bytes
     int Pitch = BitmapWidth*BytesPerPixel;
 
@@ -47,18 +52,18 @@ RenderGradient(int XOffset, int YOffset)
              ++X)
         {
             /*
-                                   0  1  2  3
-                Pixel in memory:  BB GG RR xx
+                           0  1  2  3
+                Memory:    BB GG RR xx
+                Register:  xx RR GG BB
             */
 
+            // Set RGB values
             uint8 Blue = (X + XOffset);
             uint8 Green = (Y + YOffset);
+            uint8 Red = (XOffset - Y);
             
-            /*
-                Memory:     BB GG RR xx            
-                Register:   xx RR GG BB
-            */
-            *Pixel++ = ((Green << 8) | Blue);
+            // Set the pixel 32bit value (padding will be 00)
+            *Pixel++ = ((Red << 16) | ((Green << 8) | Blue));
         }
         Row += Pitch;
     }
@@ -68,6 +73,9 @@ RenderGradient(int XOffset, int YOffset)
 void 
 WIN32ResizeDIBSection(int Width, int Height)
 {
+    /*
+        Re-allocates Bitmapmemory on resize event
+    */
     if (BitmapMemory)
     {
         // MEM_RELEASE instead of MEM_DECOMMIT because RELEASE actually frees as well, use DECOMMIT if you want them back later
@@ -101,8 +109,7 @@ void
 WIN32UpdateWindow(HDC DeviceContext, RECT *ClientRect, int X, int Y, int Width, int Height)
 {
     /*
-        Bitmaps stored in "1D" memory translate to "2D" using "pitch" and "stride"
-        ... need to know which one StretchDIBits uses
+        Render BitmapMemory
     */
     int WindowWidth = ClientRect->right - ClientRect->left;
     int WindowHeight = ClientRect->bottom - ClientRect->top;
@@ -127,6 +134,9 @@ MainWinCallback(HWND Window,
                 WPARAM WParam,
                 LPARAM LParam)
 {
+    /*
+        Window message callback function
+    */
     LRESULT Result = 0;
 
     switch (Message)
