@@ -13,13 +13,15 @@
 
 global_variable bool GlobalRunning;
 global_variable win32_buffer GlobalBackbuffer;
+global_variable int GlobalXOffset = 0;
+global_variable int GlobalYOffset = 0;
 
 // NOTE: Define stub functions for XInput in case there is an issue loading the xinput dll
 #define X_INPUT_GET_STATE(name) DWORD WINAPI name(DWORD dwUserIndex, XINPUT_STATE *pState)
 typedef X_INPUT_GET_STATE(x_input_get_state);
 X_INPUT_GET_STATE(XInputGetStateStub)
 {
-    return 0;
+    return ERROR_DEVICE_NOT_CONNECTED;
 }
 global_variable x_input_get_state *XInputGetState_ = XInputGetStateStub;
 #define XInputGetState XInputGetState_
@@ -28,10 +30,11 @@ global_variable x_input_get_state *XInputGetState_ = XInputGetStateStub;
 typedef X_INPUT_SET_STATE(x_input_set_state);
 X_INPUT_SET_STATE(XInputSetStateStub)
 {
-    return 0;
+    return ERROR_DEVICE_NOT_CONNECTED;
 }
 global_variable x_input_set_state *XInputSetState_ = XInputSetStateStub;
 #define XInputSetState XInputSetState_
+
 
 internal_function void
 LoadXInput(void)
@@ -117,8 +120,8 @@ RenderGradient(win32_buffer Buffer, int XOffset, int YOffset)
             */
 
             // Set RGB values
-            uint8 Blue = Y;  // (uint8)256 - ((float)(Y+YOffset) / BitmapWidth) * (float)256; //(X + XOffset);
-            uint8 Green = X; // ((float)(Y+YOffset) / BitmapHeight) * (float)256; //(Y + YOffset);
+            uint8 Blue = Y + GlobalYOffset;  // (uint8)256 - ((float)(Y+YOffset) / BitmapWidth) * (float)256; //(X + XOffset);
+            uint8 Green = X + GlobalXOffset; // ((float)(Y+YOffset) / BitmapHeight) * (float)256; //(Y + YOffset);
             uint8 Red = 0;   //(XOffset - Y);
 
             // Set the pixel 32bit value (padding will be 00)
@@ -213,19 +216,19 @@ MainWinCallback(HWND Window,
         {
             if (VKCode == 'W')
             {
-
+                GlobalYOffset++;
             }
             if (VKCode == 'A')
             {
-
+                GlobalXOffset--;
             }
             if (VKCode == 'S')
             {
-
+                GlobalYOffset--;
             }
             if (VKCode == 'D')
             {
-
+                GlobalXOffset++;
             }
         }
     }
@@ -281,6 +284,8 @@ WinMain(HINSTANCE Instance,
     // Set the Backbuffer resolution
     GlobalBackbuffer.BytesPerPixel = 4;
     WIN32ResizeDIBSection(&GlobalBackbuffer, 1280, 720);
+
+    LoadXInput();
 
     WNDCLASS WindowClass = {};
 
