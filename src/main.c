@@ -14,7 +14,7 @@
 global_variable bool GlobalRunning;
 global_variable win32_buffer GlobalBackbuffer;
 
-// Define stub functions
+// NOTE: Define stub functions for XInput in case there is an issue loading the xinput dll
 #define X_INPUT_GET_STATE(name) DWORD WINAPI name(DWORD dwUserIndex, XINPUT_STATE *pState)
 typedef X_INPUT_GET_STATE(x_input_get_state);
 X_INPUT_GET_STATE(XInputGetStateStub)
@@ -22,7 +22,7 @@ X_INPUT_GET_STATE(XInputGetStateStub)
     return 0;
 }
 global_variable x_input_get_state *XInputGetState_ = XInputGetStateStub;
-
+#define XInputGetState XInputGetState_
 
 #define X_INPUT_SET_STATE(name) DWORD WINAPI name(DWORD dwUserIndex, XINPUT_STATE *pVibration)
 typedef X_INPUT_SET_STATE(x_input_set_state);
@@ -31,16 +31,17 @@ X_INPUT_SET_STATE(XInputSetStateStub)
     return 0;
 }
 global_variable x_input_set_state *XInputSetState_ = XInputSetStateStub;
+#define XInputSetState XInputSetState_
 
 internal_function void
 LoadXInput(void)
 {
     // Try to load the XInput library
     HMODULE XInputLibrary = LoadLibrary("xinput_3.dll");
-    if(XInputLibrary)
+    if (XInputLibrary)
     {
-        XInputGetState_ = (x_input_get_state*)GetProcAddress(XInputLibrary, "XInputGetState");
-        XInputSetState_ = (x_input_set_state*)GetProcAddress(XInputLibrary, "XInputSetState");
+        XInputGetState_ = (x_input_get_state *)GetProcAddress(XInputLibrary, "XInputGetState");
+        XInputSetState_ = (x_input_set_state *)GetProcAddress(XInputLibrary, "XInputSetState");
     }
 }
 
@@ -128,7 +129,7 @@ RenderGradient(win32_buffer Buffer, int XOffset, int YOffset)
 }
 
 // WIN32 prefix on non-msdn functions
-internal_function void 
+internal_function void
 WIN32ResizeDIBSection(win32_buffer *Buffer, int Width, int Height)
 {
     /*
@@ -164,8 +165,8 @@ WIN32ResizeDIBSection(win32_buffer *Buffer, int Width, int Height)
     Buffer->BitmapMemory = VirtualAlloc(0, BitmapMemorySize, MEM_COMMIT, PAGE_READWRITE);
 }
 
-internal_function void 
-WIN32UpdateWindow(win32_buffer Buffer, HDC DeviceContext, int WindowWidth, int WindowHeight)
+internal_function void
+WIN32UpdateWindow(win32_buffer *Buffer, HDC DeviceContext, int WindowWidth, int WindowHeight)
 {
     /*
         Render the Backbuffer
@@ -174,9 +175,9 @@ WIN32UpdateWindow(win32_buffer Buffer, HDC DeviceContext, int WindowWidth, int W
     StretchDIBits(
         DeviceContext,
         0, 0, WindowWidth, WindowHeight,               // Destination
-        0, 0, Buffer.BitmapWidth, Buffer.BitmapHeight, // Source
-        Buffer.BitmapMemory,
-        &Buffer.BitmapInfo,
+        0, 0, Buffer->BitmapWidth, Buffer->BitmapHeight, // Source
+        Buffer->BitmapMemory,
+        &Buffer->BitmapInfo,
         // Use RGB colors
         DIB_RGB_COLORS,
         // Copy the bitmap directly
@@ -196,6 +197,41 @@ MainWinCallback(HWND Window,
 
     switch (Message)
     {
+    case WM_SYSKEYUP:
+    {
+    }
+    case WM_SYSKEYDOWN:
+    {
+    }
+    case WM_KEYUP:
+    {
+        uint32 VKCode = WParam;
+        // != 0 to catch 30th bit case as 1
+        bool WasDown = ((LParam & (1 << 30)) != 0);
+        bool IsDown = ((LParam & (1 << 31)) == 0);
+        if (WasDown != IsDown)
+        {
+            if (VKCode == 'W')
+            {
+
+            }
+            if (VKCode == 'A')
+            {
+
+            }
+            if (VKCode == 'S')
+            {
+
+            }
+            if (VKCode == 'D')
+            {
+
+            }
+        }
+    }
+    case WM_KEYDOWN:
+    {
+    }
     case WM_SIZE:
     {
         // User resized the window
@@ -302,15 +338,15 @@ WinMain(HINSTANCE Instance,
 
                 // Poll user input
                 // . Should we poll this more frequently
-                for(DWORD ControllerIndex = 0;
-                        ControllerIndex < XUSER_MAX_COUNT;
-                        ++ControllerIndex)
+                for (DWORD ControllerIndex = 0;
+                     ControllerIndex < XUSER_MAX_COUNT;
+                     ++ControllerIndex)
                 {
-                    XINPUT_STATE ControllerState;                     
-                    if(XInputGetState_(ControllerIndex, &ControllerState) == ERROR_SUCCESS)
+                    XINPUT_STATE ControllerState;
+                    if (XInputGetState(ControllerIndex, &ControllerState) == ERROR_SUCCESS)
                     {
                         // Controller is plugged in
-                        XINPUT_GAMEPAD *Pad = &ControllerState.Gamepad;  
+                        XINPUT_GAMEPAD *Pad = &ControllerState.Gamepad;
 
                         // Parse button states
                         bool Up = (Pad->wButtons & XINPUT_GAMEPAD_DPAD_UP);
@@ -327,18 +363,17 @@ WinMain(HINSTANCE Instance,
                         bool BButton = (Pad->wButtons & XINPUT_GAMEPAD_B);
                         bool XButton = (Pad->wButtons & XINPUT_GAMEPAD_X);
                         bool YButton = (Pad->wButtons & XINPUT_GAMEPAD_Y);
-
                     }
-                    else 
+                    else
                     {
-                        // Controller is not plugged in 
+                        // Controller is not plugged in
                     }
                 }
 
                 RenderGradient(GlobalBackbuffer, XOffset, YOffset);
 
                 win32_window_dimension Dim = WIN32GetWindowDimension(Window);
-                WIN32UpdateWindow(GlobalBackbuffer, DeviceContext, Dim.Width, Dim.Height);
+                WIN32UpdateWindow(&GlobalBackbuffer, DeviceContext, Dim.Width, Dim.Height);
 
                 ++XOffset;
             }
