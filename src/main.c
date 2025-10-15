@@ -45,14 +45,15 @@ typedef int64_t int64;
 win32_window_dimension 
 WIN32GetWindowDimension(HWND Window)
 {
-        win32_window_dimension Result;
+    // TODO: aspect ratio scaling
+    win32_window_dimension Result;
 
-        RECT ClientRect;
-        GetClientRect(Window, &ClientRect);
-        Result.Height = ClientRect.bottom - ClientRect.top;
-        Result.Width = ClientRect.right - ClientRect.left;
-        
-        return Result;
+    RECT ClientRect;
+    GetClientRect(Window, &ClientRect);
+    Result.Height = ClientRect.bottom - ClientRect.top;
+    Result.Width = ClientRect.right - ClientRect.left;
+    
+    return Result;
 }
 
 void
