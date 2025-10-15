@@ -1,16 +1,48 @@
 #include <windows.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <xinput.h>
 
 // Rename static for different use case readability
 #define global_variable static
 #define local_persist static
 #define internal_function static
+
 #define win32_buffer struct _win32_backbuffer
 #define win32_window_dimension struct _win32_window_dimension
 
 global_variable bool GlobalRunning;
 global_variable win32_buffer GlobalBackbuffer;
+
+// Define stub functions
+#define X_INPUT_GET_STATE(name) DWORD WINAPI name(DWORD dwUserIndex, XINPUT_STATE *pState)
+typedef X_INPUT_GET_STATE(x_input_get_state);
+X_INPUT_GET_STATE(XInputGetStateStub)
+{
+    return 0;
+}
+global_variable x_input_get_state *XInputGetState_ = XInputGetStateStub;
+
+
+#define X_INPUT_SET_STATE(name) DWORD WINAPI name(DWORD dwUserIndex, XINPUT_STATE *pVibration)
+typedef X_INPUT_SET_STATE(x_input_set_state);
+X_INPUT_SET_STATE(XInputSetStateStub)
+{
+    return 0;
+}
+global_variable x_input_set_state *XInputSetState_ = XInputSetStateStub;
+
+internal_function void
+LoadXInput(void)
+{
+    // Try to load the XInput library
+    HMODULE XInputLibrary = LoadLibrary("xinput_3.dll");
+    if(XInputLibrary)
+    {
+        XInputGetState_ = (x_input_get_state*)GetProcAddress(XInputLibrary, "XInputGetState");
+        XInputSetState_ = (x_input_set_state*)GetProcAddress(XInputLibrary, "XInputSetState");
+    }
+}
 
 // TODO: global for now
 struct _win32_backbuffer
@@ -42,7 +74,7 @@ typedef int16_t int16;
 typedef int32_t int32;
 typedef int64_t int64;
 
-win32_window_dimension
+internal_function win32_window_dimension
 WIN32GetWindowDimension(HWND Window)
 {
     // TODO: aspect ratio scaling
@@ -56,7 +88,8 @@ WIN32GetWindowDimension(HWND Window)
     return Result;
 }
 
-void RenderGradient(win32_buffer Buffer, int XOffset, int YOffset)
+internal_function void
+RenderGradient(win32_buffer Buffer, int XOffset, int YOffset)
 {
     /*
         Updates 32 bit (RGBx) Pixel values in BitmapMemory to a gradient
@@ -95,7 +128,8 @@ void RenderGradient(win32_buffer Buffer, int XOffset, int YOffset)
 }
 
 // WIN32 prefix on non-msdn functions
-void WIN32ResizeDIBSection(win32_buffer *Buffer, int Width, int Height)
+internal_function void 
+WIN32ResizeDIBSection(win32_buffer *Buffer, int Width, int Height)
 {
     /*
         Re-allocates Bitmapmemory on resize event
@@ -125,14 +159,13 @@ void WIN32ResizeDIBSection(win32_buffer *Buffer, int Width, int Height)
     Buffer->BitmapInfo.bmiHeader.biBitCount = 32;
     Buffer->BitmapInfo.bmiHeader.biCompression = BI_RGB;
 
-    int BytesPerPixel = 4;
-    int BitmapMemorySize = (Width * Height) * BytesPerPixel;
+    int BitmapMemorySize = (Width * Height) * Buffer->BytesPerPixel;
 
-    //
     Buffer->BitmapMemory = VirtualAlloc(0, BitmapMemorySize, MEM_COMMIT, PAGE_READWRITE);
 }
 
-void WIN32UpdateWindow(win32_buffer Buffer, HDC DeviceContext, int WindowWidth, int WindowHeight)
+internal_function void 
+WIN32UpdateWindow(win32_buffer Buffer, HDC DeviceContext, int WindowWidth, int WindowHeight)
 {
     /*
         Render the Backbuffer
@@ -192,20 +225,6 @@ MainWinCallback(HWND Window,
     case WM_PAINT:
     {
         // User paint request
-        PAINTSTRUCT Paint;
-
-        HDC DeviceContext = BeginPaint(Window, &Paint);
-
-        int X = Paint.rcPaint.left;
-        int Y = Paint.rcPaint.top;
-        int Height = Paint.rcPaint.bottom - Paint.rcPaint.top;
-        int Width = Paint.rcPaint.right - Paint.rcPaint.left;
-
-        win32_window_dimension Dim = WIN32GetWindowDimension(Window);
-
-        WIN32UpdateWindow(GlobalBackbuffer, DeviceContext, Dim.Width, Dim.Height, X, Y, Width, Height);
-
-        EndPaint(Window, &Paint);
     }
     default:
     {
@@ -223,17 +242,17 @@ WinMain(HINSTANCE Instance,
         LPSTR CommandLine,
         int ShowCode)
 {
-    WNDCLASS WindowClass = {};
-
+    // Set the Backbuffer resolution
+    GlobalBackbuffer.BytesPerPixel = 4;
     WIN32ResizeDIBSection(&GlobalBackbuffer, 1280, 720);
+
+    WNDCLASS WindowClass = {};
 
     WindowClass.style = CS_OWNDC | CS_HREDRAW | CS_VREDRAW;
     WindowClass.lpfnWndProc = MainWinCallback;
     WindowClass.hInstance = Instance;
     // WindowClass.hIcon;
     WindowClass.lpszClassName = "CRenderWindowClass";
-
-    GlobalBackbuffer.BytesPerPixel = 4;
 
     if (RegisterClass(&WindowClass))
     {
@@ -279,6 +298,41 @@ WinMain(HINSTANCE Instance,
                     // Parsing for keyboard input
                     TranslateMessage(&Message);
                     DispatchMessage(&Message);
+                }
+
+                // Poll user input
+                // . Should we poll this more frequently
+                for(DWORD ControllerIndex = 0;
+                        ControllerIndex < XUSER_MAX_COUNT;
+                        ++ControllerIndex)
+                {
+                    XINPUT_STATE ControllerState;                     
+                    if(XInputGetState_(ControllerIndex, &ControllerState) == ERROR_SUCCESS)
+                    {
+                        // Controller is plugged in
+                        XINPUT_GAMEPAD *Pad = &ControllerState.Gamepad;  
+
+                        // Parse button states
+                        bool Up = (Pad->wButtons & XINPUT_GAMEPAD_DPAD_UP);
+                        bool Down = (Pad->wButtons & XINPUT_GAMEPAD_DPAD_DOWN);
+                        bool Left = (Pad->wButtons & XINPUT_GAMEPAD_DPAD_LEFT);
+                        bool Right = (Pad->wButtons & XINPUT_GAMEPAD_DPAD_RIGHT);
+                        bool Start = (Pad->wButtons & XINPUT_GAMEPAD_START);
+                        bool Back = (Pad->wButtons & XINPUT_GAMEPAD_BACK);
+                        bool LThumb = (Pad->wButtons & XINPUT_GAMEPAD_LEFT_THUMB);
+                        bool RThumb = (Pad->wButtons & XINPUT_GAMEPAD_RIGHT_THUMB);
+                        bool LShoulder = (Pad->wButtons & XINPUT_GAMEPAD_LEFT_SHOULDER);
+                        bool RShoulder = (Pad->wButtons & XINPUT_GAMEPAD_RIGHT_SHOULDER);
+                        bool AButton = (Pad->wButtons & XINPUT_GAMEPAD_A);
+                        bool BButton = (Pad->wButtons & XINPUT_GAMEPAD_B);
+                        bool XButton = (Pad->wButtons & XINPUT_GAMEPAD_X);
+                        bool YButton = (Pad->wButtons & XINPUT_GAMEPAD_Y);
+
+                    }
+                    else 
+                    {
+                        // Controller is not plugged in 
+                    }
                 }
 
                 RenderGradient(GlobalBackbuffer, XOffset, YOffset);
