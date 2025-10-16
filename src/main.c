@@ -2,6 +2,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <xinput.h>
+#include <dsound.h>
 
 // Rename static for different use case readability
 #define global_variable static
@@ -35,9 +36,8 @@ X_INPUT_SET_STATE(XInputSetStateStub)
 global_variable x_input_set_state *XInputSetState_ = XInputSetStateStub;
 #define XInputSetState XInputSetState_
 
-
 internal_function void
-LoadXInput(void)
+Win32LoadXInput(void)
 {
     // Try to load the XInput library
     HMODULE XInputLibrary = LoadLibrary("xinput_3.dll");
@@ -47,6 +47,8 @@ LoadXInput(void)
         XInputSetState_ = (x_input_set_state *)GetProcAddress(XInputLibrary, "XInputSetState");
     }
 }
+
+
 
 // TODO: global for now
 struct _win32_backbuffer
@@ -78,8 +80,21 @@ typedef int16_t int16;
 typedef int32_t int32;
 typedef int64_t int64;
 
+internal_function void
+Win32InitDirectSound(HWND Window, int32 SamplesPerSecond, int32 BufferSize)
+{
+    LPDIRECTSOUND DirectSound;    
+    if(SUCCEEDED(DirectSoundCreate(0, &DirectSound, 0)))
+    {
+        if(SUCCEEDED(DirectSound->lpVtbl->SetCooperativeLevel(DirectSound, Window, DSSCL_PRIORITY)))
+        {
+
+        }
+    }
+}
+
 internal_function win32_window_dimension
-WIN32GetWindowDimension(HWND Window)
+Win32GetWindowDimension(HWND Window)
 {
     // TODO: aspect ratio scaling
     win32_window_dimension Result;
@@ -131,9 +146,9 @@ RenderGradient(win32_buffer Buffer, int XOffset, int YOffset)
     }
 }
 
-// WIN32 prefix on non-msdn functions
+// Win32 prefix on non-msdn functions
 internal_function void
-WIN32ResizeDIBSection(win32_buffer *Buffer, int Width, int Height)
+Win32ResizeDIBSection(win32_buffer *Buffer, int Width, int Height)
 {
     /*
         Re-allocates Bitmapmemory on resize event
@@ -169,7 +184,7 @@ WIN32ResizeDIBSection(win32_buffer *Buffer, int Width, int Height)
 }
 
 internal_function void
-WIN32UpdateWindow(win32_buffer *Buffer, HDC DeviceContext, int WindowWidth, int WindowHeight)
+Win32UpdateWindow(win32_buffer *Buffer, HDC DeviceContext, int WindowWidth, int WindowHeight)
 {
     /*
         Render the Backbuffer
@@ -283,9 +298,9 @@ WinMain(HINSTANCE Instance,
 {
     // Set the Backbuffer resolution
     GlobalBackbuffer.BytesPerPixel = 4;
-    WIN32ResizeDIBSection(&GlobalBackbuffer, 1280, 720);
+    Win32ResizeDIBSection(&GlobalBackbuffer, 1280, 720);
 
-    LoadXInput();
+    Win32LoadXInput();
 
     WNDCLASS WindowClass = {};
 
@@ -377,8 +392,8 @@ WinMain(HINSTANCE Instance,
 
                 RenderGradient(GlobalBackbuffer, XOffset, YOffset);
 
-                win32_window_dimension Dim = WIN32GetWindowDimension(Window);
-                WIN32UpdateWindow(&GlobalBackbuffer, DeviceContext, Dim.Width, Dim.Height);
+                win32_window_dimension Dim = Win32GetWindowDimension(Window);
+                Win32UpdateWindow(&GlobalBackbuffer, DeviceContext, Dim.Width, Dim.Height);
 
                 ++XOffset;
             }
