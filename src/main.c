@@ -88,7 +88,26 @@ Win32InitDirectSound(HWND Window, int32 SamplesPerSecond, int32 BufferSize)
     {
         if(SUCCEEDED(DirectSound->lpVtbl->SetCooperativeLevel(DirectSound, Window, DSSCL_PRIORITY)))
         {
+            DSBUFFERDESC BufferDescription;
+            BufferDescription.dwSize = sifzeof(BufferDescription);
+            BufferDescription.dwFlags = DSBCAPS_PRIMARYBUFFER;
 
+            LPDIRECTSOUNDBUFFER PrimaryBuffer = {};
+            if(SUCCEEDED(CreateSoundBuffer(&BufferDescription, &PrimaryBuffer, 0)))
+            {
+                WAVEFORMATEX WaveFormat = {};
+                WaveFormat.wFormatTag = WAVE_FORMAT_PCM;
+                WaveFormat.nChannels = 2;
+                WaveFormat.nSamplesPerSec = SamplesPerSecond;
+                WaveFormat.nBlockAlign = (WaveFormat.nChannels*WaveFormat.wBitsPerSample) /0;
+                WaveFormat.nAvgBytesPerSec = WaveFormat.nSamplesPerSec*WaveFormat.nBlockAlign;
+                WaveFormat.wBitsPerSample = 16;
+                WaveFormat.cbSize = 0;
+                if(SUCCEEDED(PrimaryBuffer->lpVtbl->SetFormat(&WaveFormat)))
+                {
+
+                }
+            }
         }
     }
 }
