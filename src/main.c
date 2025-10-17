@@ -48,8 +48,6 @@ Win32LoadXInput(void)
     }
 }
 
-
-
 // TODO: global for now
 struct _win32_backbuffer
 {
@@ -83,31 +81,63 @@ typedef int64_t int64;
 internal_function void
 Win32InitDirectSound(HWND Window, int32 SamplesPerSecond, int32 BufferSize)
 {
-    LPDIRECTSOUND DirectSound;    
-    if(SUCCEEDED(DirectSoundCreate(0, &DirectSound, 0)))
+    LPDIRECTSOUND DirectSound;
+    if (SUCCEEDED(DirectSoundCreate(0, &DirectSound, 0)))
     {
-        if(SUCCEEDED(DirectSound->lpVtbl->SetCooperativeLevel(DirectSound, Window, DSSCL_PRIORITY)))
+        WAVEFORMATEX WaveFormat = {};
+        WaveFormat.wFormatTag = WAVE_FORMAT_PCM;
+        WaveFormat.nChannels = 2;
+        WaveFormat.nSamplesPerSec = SamplesPerSecond;
+        WaveFormat.nBlockAlign = (WaveFormat.nChannels * WaveFormat.wBitsPerSample) / 8;
+        WaveFormat.nAvgBytesPerSec = WaveFormat.nSamplesPerSec * WaveFormat.nBlockAlign;
+        WaveFormat.wBitsPerSample = 16;
+        WaveFormat.cbSize = 0;
+
+        LRESULT ErrorCode = DirectSound->lpVtbl->SetCooperativeLevel(DirectSound, Window, DSSCL_PRIORITY);
+        if (SUCCEEDED(ErrorCode))
         {
             DSBUFFERDESC BufferDescription;
-            BufferDescription.dwSize = sifzeof(BufferDescription);
+            BufferDescription.dwSize = sizeof(BufferDescription);
             BufferDescription.dwFlags = DSBCAPS_PRIMARYBUFFER;
-
             LPDIRECTSOUNDBUFFER PrimaryBuffer = {};
-            if(SUCCEEDED(CreateSoundBuffer(&BufferDescription, &PrimaryBuffer, 0)))
+            ErrorCode = IDirectSound_CreateSoundBuffer(DirectSound, &BufferDescription, &PrimaryBuffer, 0);
+            if (SUCCEEDED(ErrorCode))
             {
-                WAVEFORMATEX WaveFormat = {};
-                WaveFormat.wFormatTag = WAVE_FORMAT_PCM;
-                WaveFormat.nChannels = 2;
-                WaveFormat.nSamplesPerSec = SamplesPerSecond;
-                WaveFormat.nBlockAlign = (WaveFormat.nChannels*WaveFormat.wBitsPerSample) /0;
-                WaveFormat.nAvgBytesPerSec = WaveFormat.nSamplesPerSec*WaveFormat.nBlockAlign;
-                WaveFormat.wBitsPerSample = 16;
-                WaveFormat.cbSize = 0;
-                if(SUCCEEDED(PrimaryBuffer->lpVtbl->SetFormat(&WaveFormat)))
+
+                ErrorCode = PrimaryBuffer->lpVtbl->SetFormat(PrimaryBuffer, &WaveFormat);
+                if (SUCCEEDED(ErrorCode))
                 {
 
                 }
+                else
+                {
+                    OutputDebugStringA("Failed to set format for Primary DirectSound Buffer\nError Code: ");
+                }
             }
+            else
+            {
+                OutputDebugStringA("Failed to create Primary DirectSound Buffer\nError Code: ");
+            }
+        }
+        else
+        {
+            OutputDebugStringA("Failed in call SetCooperativeLevel for Primary DirectSound Buffer\nError Code: ");
+        }
+        // Note: This is the actual sound buffer, the PrimaryBuffer is just for setting the initial WaveFormat
+        // ... just windows nonsense
+        DSBUFFERDESC BufferDescription = {};
+        BufferDescription.dwSize = sizeof(BufferDescription);
+        BufferDescription.dwFlags = DSBCAPS_PRIMARYBUFFER;
+        BufferDescription.dwBufferBytes = BufferSize;
+        BufferDescription.lpwfxFormat = &WaveFormat;
+        LPDIRECTSOUNDBUFFER SecondaryBuffer;
+        ErrorCode = IDirectSound_CreateSoundBuffer(DirectSound, &BufferDescription, &SecondaryBuffer, 0);
+        if (SUCCEEDED(ErrorCode))
+        {
+        }
+        else
+        {
+            OutputDebugStringA("Failed to create Secondary DirectSound Buffer\nError Code: ");
         }
     }
 }
@@ -156,7 +186,7 @@ RenderGradient(win32_buffer Buffer, int XOffset, int YOffset)
             // Set RGB values
             uint8 Blue = Y + GlobalYOffset;  // (uint8)256 - ((float)(Y+YOffset) / BitmapWidth) * (float)256; //(X + XOffset);
             uint8 Green = X + GlobalXOffset; // ((float)(Y+YOffset) / BitmapHeight) * (float)256; //(Y + YOffset);
-            uint8 Red = 0;   //(XOffset - Y);
+            uint8 Red = 0;                   //(XOffset - Y);
 
             // Set the pixel 32bit value (padding will be 00)
             *Pixel++ = ((Red << 16) | ((Green << 8) | Blue));
@@ -211,7 +241,7 @@ Win32UpdateWindow(win32_buffer *Buffer, HDC DeviceContext, int WindowWidth, int 
     // TODO: Aspect ratio conversion stretch modes
     StretchDIBits(
         DeviceContext,
-        0, 0, WindowWidth, WindowHeight,               // Destination
+        0, 0, WindowWidth, WindowHeight,                 // Destination
         0, 0, Buffer->BitmapWidth, Buffer->BitmapHeight, // Source
         Buffer->BitmapMemory,
         &Buffer->BitmapInfo,
@@ -348,6 +378,8 @@ WinMain(HINSTANCE Instance,
             );
         if (Window)
         {
+            Win32InitDirectSound(Window, 4800, 4800 * sizeof(int16) * 2);
+
             //
             HDC DeviceContext = GetDC(Window);
 
@@ -375,8 +407,11 @@ WinMain(HINSTANCE Instance,
                     DispatchMessage(&Message);
                 }
 
-                // Poll user input
-                // . Should we poll this more frequently
+                // Poll Controller input
+
+                /*
+                // NOTE: XInputGetState has a performance bug if no controller is plugged in
+
                 for (DWORD ControllerIndex = 0;
                      ControllerIndex < XUSER_MAX_COUNT;
                      ++ControllerIndex)
@@ -408,6 +443,7 @@ WinMain(HINSTANCE Instance,
                         // Controller is not plugged in
                     }
                 }
+                */
 
                 RenderGradient(GlobalBackbuffer, XOffset, YOffset);
 
