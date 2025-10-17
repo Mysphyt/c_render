@@ -88,18 +88,18 @@ Win32InitDirectSound(HWND Window, int32 SamplesPerSecond, int32 BufferSize)
         WaveFormat.wFormatTag = WAVE_FORMAT_PCM;
         WaveFormat.nChannels = 2;
         WaveFormat.nSamplesPerSec = SamplesPerSecond;
-        WaveFormat.nBlockAlign = (WaveFormat.nChannels * WaveFormat.wBitsPerSample) / 8;
-        WaveFormat.nAvgBytesPerSec = WaveFormat.nSamplesPerSec * WaveFormat.nBlockAlign;
         WaveFormat.wBitsPerSample = 16;
         WaveFormat.cbSize = 0;
-
+        WaveFormat.nBlockAlign = (WaveFormat.nChannels * WaveFormat.wBitsPerSample) / 8;
+        WaveFormat.nAvgBytesPerSec = WaveFormat.nSamplesPerSec * WaveFormat.nBlockAlign;
         LRESULT ErrorCode = DirectSound->lpVtbl->SetCooperativeLevel(DirectSound, Window, DSSCL_PRIORITY);
         if (SUCCEEDED(ErrorCode))
         {
-            DSBUFFERDESC BufferDescription;
+            DSBUFFERDESC BufferDescription = {};
             BufferDescription.dwSize = sizeof(BufferDescription);
             BufferDescription.dwFlags = DSBCAPS_PRIMARYBUFFER;
-            LPDIRECTSOUNDBUFFER PrimaryBuffer = {};
+
+            LPDIRECTSOUNDBUFFER PrimaryBuffer; 
             ErrorCode = IDirectSound_CreateSoundBuffer(DirectSound, &BufferDescription, &PrimaryBuffer, 0);
             if (SUCCEEDED(ErrorCode))
             {
@@ -111,25 +111,27 @@ Win32InitDirectSound(HWND Window, int32 SamplesPerSecond, int32 BufferSize)
                 }
                 else
                 {
-                    OutputDebugStringA("Failed to set format for Primary DirectSound Buffer\nError Code: ");
+                    OutputDebugStringA("Failed to set format for Primary DirectSound Buffer");
                 }
             }
             else
             {
-                OutputDebugStringA("Failed to create Primary DirectSound Buffer\nError Code: ");
+                OutputDebugStringA("Failed to create Primary DirectSound Buffer");
             }
         }
         else
         {
-            OutputDebugStringA("Failed in call SetCooperativeLevel for Primary DirectSound Buffer\nError Code: ");
+            OutputDebugStringA("Failed in call SetCooperativeLevel for Primary DirectSound Buffer");
         }
+
         // Note: This is the actual sound buffer, the PrimaryBuffer is just for setting the initial WaveFormat
         // ... just windows nonsense
         DSBUFFERDESC BufferDescription = {};
         BufferDescription.dwSize = sizeof(BufferDescription);
-        BufferDescription.dwFlags = DSBCAPS_PRIMARYBUFFER;
+        BufferDescription.dwFlags = 0;
         BufferDescription.dwBufferBytes = BufferSize;
         BufferDescription.lpwfxFormat = &WaveFormat;
+
         LPDIRECTSOUNDBUFFER SecondaryBuffer;
         ErrorCode = IDirectSound_CreateSoundBuffer(DirectSound, &BufferDescription, &SecondaryBuffer, 0);
         if (SUCCEEDED(ErrorCode))
@@ -137,7 +139,7 @@ Win32InitDirectSound(HWND Window, int32 SamplesPerSecond, int32 BufferSize)
         }
         else
         {
-            OutputDebugStringA("Failed to create Secondary DirectSound Buffer\nError Code: ");
+            OutputDebugStringA("Failed to create Secondary DirectSound Buffer");
         }
     }
 }
