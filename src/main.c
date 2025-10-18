@@ -536,8 +536,13 @@ WinMain(HINSTANCE Instance,
                             *SampleOut++ = SampleValue;
                             *SampleOut++ = SampleValue;
                         }
-                    }
 
+                        GlobalSecondaryBuffer->lpVtbl->Unlock(
+                            GlobalSecondaryBuffer,
+                            Region1, Region1Size,
+                            Region2, Region2Size
+                        );
+                    }
                     else
                     {
                         OutputDebugString("Failed to Lock DirectSound SecondaryBuffer");
