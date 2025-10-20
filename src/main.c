@@ -483,6 +483,32 @@ WinMain(HINSTANCE Instance,
                         |---*111111111111111*--------| 
                             ^ByteToLock     ^Play
 
+
+                    Square Wave
+
+                        - First chunk maps directly to the buffer
+                           _   _   _   _   _
+                        |_| |_| |_| |_| |_| |_
+                        ^        ^
+                        |        |
+                        |        |
+                        |11111111| Buffer
+ 
+                        - As DirectSound plays, lock and fill the already
+                            played portion with the next section of the wave
+                           _   _   _   _   _  
+                        |_| |_| |_| |_| |_| |_
+                             ^   ^^    ^
+                             |   ||2222|
+                             |   |
+                        |----|111| Buffer
+                           _   _   _   _   _  
+                        |_| |_| |_| |_| |_| |_
+                             ^   ^
+                             |   |
+                             |   |
+                        |2222|111| Buffer
+
                     */
                     if (ByteToLock > PlayCursor)
                     {
@@ -512,6 +538,9 @@ WinMain(HINSTANCE Instance,
                         &Region1, &Region1Size,
                         &Region2, &Region2Size, 0);
 
+                    /* Square wave
+
+                    */
                     if (SUCCEEDED(ErrorCode))
                     {
                         // TODO: Assert Region(1|2)Size is valid
