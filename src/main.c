@@ -392,7 +392,7 @@ WinMain(HINSTANCE Instance,
             HDC DeviceContext = GetDC(Window);
 
             int SamplesPerSecond = 48000;
-            int BytesPerSample = sizeof(int16) * 2;
+            int BytesPerSample = sizeof(int16) * 2; // 32bit samples, 16 bit chunks to form square waves
             int DSBufferSize = SamplesPerSecond * BytesPerSample;
 
             // Init sound 2 second buffer
@@ -472,21 +472,25 @@ WinMain(HINSTANCE Instance,
                     DWORD ByteToLock = RunningSampleIndex * BytesPerSample % DSBufferSize;
                     DWORD BytesToWrite;
                     /*
-                    ByteToLock > PlayCursor:
+                    Square Wave
+
+                        1 = Region 1
+                        2 = Region 2
+
+                        - ByteToLock > PlayCursor:
 
                         |222*------------*11111111111| 
                             ^Play        ^ByteToLock
 
                     
-                    ByteToLock < PlayCursor:
+                        - ByteToLock < PlayCursor:
 
                         |---*111111111111111*--------| 
                             ^ByteToLock     ^Play
 
-
-                    Square Wave
-
                         - First chunk maps directly to the buffer
+                            Region1Size = BytesToWrite
+                            Region2Size = 0
                            _   _   _   _   _
                         |_| |_| |_| |_| |_| |_
                         ^        ^
@@ -521,7 +525,6 @@ WinMain(HINSTANCE Instance,
                         BytesToWrite = PlayCursor - ByteToLock;
                     }
 
-                    // Square wave test
                     VOID *Region1;
                     DWORD Region1Size;
                     VOID *Region2;
@@ -529,8 +532,6 @@ WinMain(HINSTANCE Instance,
 
                     HRESULT ErrorCode;
 
-                    // Region1 is the region from the WritePointer to the end of the buffer
-                    // Region2 is the remaining region from the start of the buffer
                     ErrorCode = GlobalSecondaryBuffer->lpVtbl->Lock(
                         GlobalSecondaryBuffer,
                         ByteToLock,
@@ -538,13 +539,11 @@ WinMain(HINSTANCE Instance,
                         &Region1, &Region1Size,
                         &Region2, &Region2Size, 0);
 
-                    /* Square wave
-
-                    */
+                    int16 *SampleOut;
                     if (SUCCEEDED(ErrorCode))
                     {
                         // TODO: Assert Region(1|2)Size is valid
-                        int16 *SampleOut = (int16 *)Region1;
+                        SampleOut = (int16 *)Region1;
 
                         DWORD Region1SampleCount = Region1Size / BytesPerSample;
                         for (DWORD SampleIndex = 0;
@@ -555,6 +554,8 @@ WinMain(HINSTANCE Instance,
                             *SampleOut++ = SampleValue;
                             *SampleOut++ = SampleValue;
                         }
+
+                        SampleOut = (int16 *)Region2;
 
                         DWORD Region2SampleCount = Region2Size / BytesPerSample;
                         for (DWORD SampleIndex = 0;
