@@ -79,6 +79,9 @@ typedef int16_t int16;
 typedef int32_t int32;
 typedef int64_t int64;
 
+typedef real32 float;
+typedef real64 double;
+
 internal_function void
 Win32InitDirectSound(HWND Window, int32 SamplesPerSecond, int32 BufferSize)
 {
@@ -393,19 +396,27 @@ WinMain(HINSTANCE Instance,
 
             int SamplesPerSecond = 48000;
             int BytesPerSample = sizeof(int16) * 2; // 32bit samples, 16 bit chunks to form square waves
-            int DSBufferSize = SamplesPerSecond * BytesPerSample;
+            int DirectSoundBufferSize = SamplesPerSecond * BytesPerSample;
 
             // Init sound 2 second buffer
-            Win32InitDirectSound(Window, SamplesPerSecond, DSBufferSize);
+            Win32InitDirectSound(Window, SamplesPerSecond, DirectSoundBufferSize);
 
             // Square wave data
+            /*
+            int SquareWaveVolume = 16000;
             int Hz = 256; // C
             int SquareWavePeriod = SamplesPerSecond / Hz;
             int HalfSquareWavePeriod = SquareWavePeriod / 2;
+            */
+            int WaveVolume = 16000;
+            int Hz = 256;
+            int WavePeriod = SamplesPerSecond / Hz;
+            int HalfWavePeriod = WavePeriod /2;
+
             // uint to wrap back to 0, goes up forever
             uint32 RunningSampleIndex = 0;
 
-            IDirectSoundBuffer_Play(GlobalSecondaryBuffer, 0, 0, DSBPLAY_LOOPING);
+            bool SoundIsPlaying = false;
 
             // Handle message queue
             while (GlobalRunning)
@@ -469,7 +480,7 @@ WinMain(HINSTANCE Instance,
                 if (SUCCEEDED(IDirectSoundBuffer_GetCurrentPosition(GlobalSecondaryBuffer, &PlayCursor, &WriteCursor)))
                 {
                     // Where in the buffer is the RunningSampleIndex (to lock)
-                    DWORD ByteToLock = RunningSampleIndex * BytesPerSample % DSBufferSize;
+                    DWORD ByteToLock = RunningSampleIndex * BytesPerSample % DirectSoundBufferSize;
                     DWORD BytesToWrite;
                     /*
                     Square Wave
@@ -514,13 +525,17 @@ WinMain(HINSTANCE Instance,
                         |2222|111| Buffer
 
                     */
-                    if (ByteToLock > PlayCursor)
+                    if (ByteToLock == PlayCursor)
+                    {
+                        BytesToWrite = DirectSoundBufferSize;
+                    }
+                    else if (ByteToLock > PlayCursor)
                     {
                         // Write to the end of the buffer and then to the PlayCursor
-                        BytesToWrite = (DSBufferSize - ByteToLock);
+                        BytesToWrite = (DirectSoundBufferSize - ByteToLock);
                         BytesToWrite += PlayCursor;
                     }
-                    else
+                    else // ByteToLock < PlayCursor
                     {
                         BytesToWrite = PlayCursor - ByteToLock;
                     }
@@ -550,7 +565,8 @@ WinMain(HINSTANCE Instance,
                              SampleIndex < Region1SampleCount;
                              ++SampleIndex)
                         {
-                            int16 SampleValue = ((RunningSampleIndex++ / HalfSquareWavePeriod) % 2) ? 16000 : -16000;
+                            real32 SineValue = ;
+                            int16 SampleValue = ((RunningSampleIndex++ / HalfWavePeriod) % 2) ? WaveVolume: -WaveVolume;
                             *SampleOut++ = SampleValue;
                             *SampleOut++ = SampleValue;
                         }
@@ -562,7 +578,8 @@ WinMain(HINSTANCE Instance,
                              SampleIndex < Region2SampleCount;
                              ++SampleIndex)
                         {
-                            int16 SampleValue = ((RunningSampleIndex++ / HalfSquareWavePeriod) % 2) ? 16000 : -16000;
+                            real32 SineValue = ;
+                            int16 SampleValue = ((RunningSampleIndex++ / HalfWavePeriod) % 2) ? WaveVolume: -WaveVolume;
                             *SampleOut++ = SampleValue;
                             *SampleOut++ = SampleValue;
                         }
@@ -576,6 +593,12 @@ WinMain(HINSTANCE Instance,
                     else
                     {
                         OutputDebugString("Failed to Lock DirectSound SecondaryBuffer");
+                    }
+
+                    if(!SoundIsPlaying)
+                    {
+                        IDirectSoundBuffer_Play(GlobalSecondaryBuffer, 0, 0, DSBPLAY_LOOPING);
+                        SoundIsPlaying = true;
                     }
                 }
 
