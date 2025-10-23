@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <xinput.h>
 #include <dsound.h>
+#include <math.h>
 
 // Rename static for different use case readability
 #define global_variable static
@@ -79,8 +80,8 @@ typedef int16_t int16;
 typedef int32_t int32;
 typedef int64_t int64;
 
-typedef real32 float;
-typedef real64 double;
+typedef float real32;
+typedef double real64;
 
 internal_function void
 Win32InitDirectSound(HWND Window, int32 SamplesPerSecond, int32 BufferSize)
@@ -394,6 +395,7 @@ WinMain(HINSTANCE Instance,
 
             HDC DeviceContext = GetDC(Window);
 
+            float Pi = 3.14159265359f;
             int SamplesPerSecond = 48000;
             int BytesPerSample = sizeof(int16) * 2; // 32bit samples, 16 bit chunks to form square waves
             int DirectSoundBufferSize = SamplesPerSecond * BytesPerSample;
@@ -555,7 +557,7 @@ WinMain(HINSTANCE Instance,
                         &Region2, &Region2Size, 0);
 
                     int16 *SampleOut;
-                    if (SUCCEEDED(ErrorCode))
+                    if (!SoundIsPlaying && SUCCEEDED(ErrorCode))
                     {
                         // TODO: Assert Region(1|2)Size is valid
                         SampleOut = (int16 *)Region1;
@@ -565,10 +567,12 @@ WinMain(HINSTANCE Instance,
                              SampleIndex < Region1SampleCount;
                              ++SampleIndex)
                         {
-                            real32 SineValue = ;
-                            int16 SampleValue = ((RunningSampleIndex++ / HalfWavePeriod) % 2) ? WaveVolume: -WaveVolume;
+                            real32 t = 2.0f*Pi*((real32)RunningSampleIndex / (real32)WavePeriod);
+                            real32 SineValue = sinf(t);
+                            int16 SampleValue = (int16)(SineValue * WaveVolume);// ((RunningSampleIndex++ / HalfWavePeriod) % 2) ? WaveVolume: -WaveVolume;
                             *SampleOut++ = SampleValue;
                             *SampleOut++ = SampleValue;
+                            ++RunningSampleIndex;
                         }
 
                         SampleOut = (int16 *)Region2;
@@ -578,10 +582,12 @@ WinMain(HINSTANCE Instance,
                              SampleIndex < Region2SampleCount;
                              ++SampleIndex)
                         {
-                            real32 SineValue = ;
-                            int16 SampleValue = ((RunningSampleIndex++ / HalfWavePeriod) % 2) ? WaveVolume: -WaveVolume;
+                            real32 t = 2.0f*Pi*((real32)RunningSampleIndex / (real32)WavePeriod);
+                            real32 SineValue = sinf(t);
+                            int16 SampleValue = (int16)(SineValue * WaveVolume);// ((RunningSampleIndex++ / HalfWavePeriod) % 2) ? WaveVolume: -WaveVolume;
                             *SampleOut++ = SampleValue;
                             *SampleOut++ = SampleValue;
+                            ++RunningSampleIndex;
                         }
 
                         GlobalSecondaryBuffer->lpVtbl->Unlock(
