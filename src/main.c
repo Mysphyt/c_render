@@ -10,15 +10,6 @@
 #define local_persist static
 #define internal_function static
 
-#define win32_buffer struct _win32_backbuffer
-#define win32_window_dimension struct _win32_window_dimension
-
-global_variable bool GlobalRunning;
-global_variable win32_buffer GlobalBackbuffer;
-global_variable int GlobalXOffset = 0;
-global_variable int GlobalYOffset = 0;
-global_variable LPDIRECTSOUNDBUFFER GlobalSecondaryBuffer;
-
 // NOTE: Define stub functions for XInput in case there is an issue loading the xinput dll
 #define X_INPUT_GET_STATE(name) DWORD WINAPI name(DWORD dwUserIndex, XINPUT_STATE *pState)
 typedef X_INPUT_GET_STATE(x_input_get_state);
@@ -51,7 +42,7 @@ Win32LoadXInput(void)
 }
 
 // TODO: global for now
-struct _win32_backbuffer
+typedef struct
 {
     // NOTE: Pixels are always 32--bits wide, memory order BB GG RR xx
     BITMAPINFO BitmapInfo;
@@ -60,13 +51,13 @@ struct _win32_backbuffer
     int BitmapWidth;
     int BytesPerPixel;
     int Pitch;
-};
+} win32_backbuffer;
 
-struct _win32_window_dimension
+typedef struct
 {
     int Width;
     int Height;
-};
+} win32_window_dimension;
 
 // Define shorthands for platform agnostic ints
 // . (u)int(n)_t is the correct size regardless of platform
@@ -82,6 +73,16 @@ typedef int64_t int64;
 
 typedef float real32;
 typedef double real64;
+
+#define PI 3.14159265359f
+
+global_variable bool GlobalRunning;
+global_variable win32_backbuffer GlobalBackbuffer;
+global_variable int GlobalXOffset = 0;
+global_variable int GlobalYOffset = 0;
+global_variable LPDIRECTSOUNDBUFFER GlobalSecondaryBuffer;
+
+global_variable uint32 RunningSampleIndex = 0;
 
 internal_function void
 Win32InitDirectSound(HWND Window, int32 SamplesPerSecond, int32 BufferSize)
@@ -164,7 +165,7 @@ Win32GetWindowDimension(HWND Window)
 }
 
 internal_function void
-RenderGradient(win32_buffer Buffer)
+RenderGradient(win32_backbuffer Buffer)
 {
     /*
         Updates 32 bit (RGBx) Pixel values in BitmapMemory to a gradient
@@ -204,7 +205,7 @@ RenderGradient(win32_buffer Buffer)
 
 // Win32 prefix on non-msdn functions
 internal_function void
-Win32ResizeDIBSection(win32_buffer *Buffer, int Width, int Height)
+Win32ResizeDIBSection(win32_backbuffer *Buffer, int Width, int Height)
 {
     /*
         Re-allocates Bitmapmemory on resize event
@@ -241,7 +242,7 @@ Win32ResizeDIBSection(win32_buffer *Buffer, int Width, int Height)
 }
 
 internal_function void
-Win32UpdateWindow(win32_buffer *Buffer, HDC DeviceContext, int WindowWidth, int WindowHeight)
+Win32UpdateWindow(win32_backbuffer *Buffer, HDC DeviceContext, int WindowWidth, int WindowHeight)
 {
     /*
         Render the Backbuffer
@@ -351,6 +352,78 @@ MainWinCallback(HWND Window,
     return Result;
 }
 
+typedef struct
+{
+    int SamplesPerSecond;
+    int BytesPerSample;
+    int WaveVolume;
+    int Hz;
+    int WavePeriod;
+    int HalfWavePeriod;
+    int BufferSize;
+} win32_sound_output;
+
+void Win32FillSoundBuffer(win32_sound_output *SoundOutput, DWORD ByteToLock, DWORD BytesToWrite)
+{
+    VOID *Region1;
+    DWORD Region1Size;
+    VOID *Region2;
+    DWORD Region2Size;
+
+    HRESULT ErrorCode;
+
+    ErrorCode = GlobalSecondaryBuffer->lpVtbl->Lock(
+        GlobalSecondaryBuffer,
+        ByteToLock,
+        BytesToWrite,
+        &Region1, &Region1Size,
+        &Region2, &Region2Size, 0);
+
+    int16 *SampleOut;
+    if (SUCCEEDED(ErrorCode))
+    {
+        // TODO: Assert Region(1|2)Size is valid
+        SampleOut = (int16 *)Region1;
+
+        DWORD Region1SampleCount = Region1Size / SoundOutput->BytesPerSample;
+        for (DWORD SampleIndex = 0;
+             SampleIndex < Region1SampleCount;
+             ++SampleIndex)
+        {
+            real32 t = 2.0f * PI * ((real32)RunningSampleIndex / (real32)SoundOutput->WavePeriod);
+            real32 SineValue = sinf(t);
+            int16 SampleValue = (int16)(SineValue * SoundOutput->WaveVolume); // ((RunningSampleIndex++ / HalfWavePeriod) % 2) ? WaveVolume: -WaveVolume;
+            *SampleOut++ = SampleValue;
+            *SampleOut++ = SampleValue;
+            ++RunningSampleIndex;
+        }
+
+        SampleOut = (int16 *)Region2;
+
+        DWORD Region2SampleCount = Region2Size / SoundOutput->BytesPerSample;
+        for (DWORD SampleIndex = 0;
+             SampleIndex < Region2SampleCount;
+             ++SampleIndex)
+        {
+            real32 t = 2.0f * PI * ((real32)RunningSampleIndex / (real32)SoundOutput->WavePeriod);
+            real32 SineValue = sinf(t);
+            int16 SampleValue = (int16)(SineValue * SoundOutput->WaveVolume); // ((RunningSampleIndex++ / HalfWavePeriod) % 2) ? WaveVolume: -WaveVolume;
+            *SampleOut++ = SampleValue;
+            *SampleOut++ = SampleValue;
+            ++RunningSampleIndex;
+        }
+
+        GlobalSecondaryBuffer->lpVtbl->Unlock(
+            GlobalSecondaryBuffer,
+            Region1, Region1Size,
+            Region2, Region2Size);
+    }
+    else
+    {
+        OutputDebugString("Failed to Lock DirectSound SecondaryBuffer");
+    }
+}
+
 int CALLBACK
 WinMain(HINSTANCE Instance,
         HINSTANCE PrevInstance,
@@ -395,13 +468,21 @@ WinMain(HINSTANCE Instance,
 
             HDC DeviceContext = GetDC(Window);
 
-            float Pi = 3.14159265359f;
-            int SamplesPerSecond = 48000;
-            int BytesPerSample = sizeof(int16) * 2; // 32bit samples, 16 bit chunks to form square waves
-            int DirectSoundBufferSize = SamplesPerSecond * BytesPerSample;
+            win32_sound_output SineWave;
+
+            SineWave.SamplesPerSecond = 48000;
+            SineWave.BytesPerSample = sizeof(int16) * 2; // 32bit samples, 16 bit chunks to form square waves
+            SineWave.WaveVolume = 3000;
+            SineWave.Hz = 256;
+            SineWave.WavePeriod = SineWave.SamplesPerSecond / SineWave.Hz;
+            SineWave.HalfWavePeriod = SineWave.WavePeriod / 2;
+            SineWave.BufferSize = SineWave.SamplesPerSecond * SineWave.BytesPerSample;
 
             // Init sound 2 second buffer
-            Win32InitDirectSound(Window, SamplesPerSecond, DirectSoundBufferSize);
+            Win32InitDirectSound(Window, SineWave.SamplesPerSecond, SineWave.BufferSize);
+
+            Win32FillSoundBuffer(&SineWave, 0, SineWave.BufferSize);
+            IDirectSoundBuffer_Play(GlobalSecondaryBuffer, 0, 0, DSBPLAY_LOOPING);
 
             // Square wave data
             /*
@@ -410,16 +491,7 @@ WinMain(HINSTANCE Instance,
             int SquareWavePeriod = SamplesPerSecond / Hz;
             int HalfSquareWavePeriod = SquareWavePeriod / 2;
             */
-            int WaveVolume = 16000;
-            int Hz = 256;
-            int WavePeriod = SamplesPerSecond / Hz;
-            int HalfWavePeriod = WavePeriod /2;
-
             // uint to wrap back to 0, goes up forever
-            uint32 RunningSampleIndex = 0;
-
-            bool SoundIsPlaying = false;
-
             // Handle message queue
             while (GlobalRunning)
             {
@@ -482,8 +554,9 @@ WinMain(HINSTANCE Instance,
                 if (SUCCEEDED(IDirectSoundBuffer_GetCurrentPosition(GlobalSecondaryBuffer, &PlayCursor, &WriteCursor)))
                 {
                     // Where in the buffer is the RunningSampleIndex (to lock)
-                    DWORD ByteToLock = RunningSampleIndex * BytesPerSample % DirectSoundBufferSize;
+                    DWORD ByteToLock = (RunningSampleIndex * SineWave.BytesPerSample) % SineWave.BufferSize;
                     DWORD BytesToWrite;
+
                     /*
                     Square Wave
 
@@ -492,13 +565,13 @@ WinMain(HINSTANCE Instance,
 
                         - ByteToLock > PlayCursor:
 
-                        |222*------------*11111111111| 
+                        |222*------------*11111111111|
                             ^Play        ^ByteToLock
 
-                    
+
                         - ByteToLock < PlayCursor:
 
-                        |---*111111111111111*--------| 
+                        |---*111111111111111*--------|
                             ^ByteToLock     ^Play
 
                         - First chunk maps directly to the buffer
@@ -510,16 +583,16 @@ WinMain(HINSTANCE Instance,
                         |        |
                         |        |
                         |11111111| Buffer
- 
+
                         - As DirectSound plays, lock and fill the already
                             played portion with the next section of the wave
-                           _   _   _   _   _  
+                           _   _   _   _   _
                         |_| |_| |_| |_| |_| |_
                              ^   ^^    ^
                              |   ||2222|
                              |   |
                         |----|111| Buffer
-                           _   _   _   _   _  
+                           _   _   _   _   _
                         |_| |_| |_| |_| |_| |_
                              ^   ^
                              |   |
@@ -529,12 +602,12 @@ WinMain(HINSTANCE Instance,
                     */
                     if (ByteToLock == PlayCursor)
                     {
-                        BytesToWrite = DirectSoundBufferSize;
+                        BytesToWrite = 0;
                     }
                     else if (ByteToLock > PlayCursor)
                     {
                         // Write to the end of the buffer and then to the PlayCursor
-                        BytesToWrite = (DirectSoundBufferSize - ByteToLock);
+                        BytesToWrite = (SineWave.BufferSize - ByteToLock);
                         BytesToWrite += PlayCursor;
                     }
                     else // ByteToLock < PlayCursor
@@ -542,70 +615,7 @@ WinMain(HINSTANCE Instance,
                         BytesToWrite = PlayCursor - ByteToLock;
                     }
 
-                    VOID *Region1;
-                    DWORD Region1Size;
-                    VOID *Region2;
-                    DWORD Region2Size;
-
-                    HRESULT ErrorCode;
-
-                    ErrorCode = GlobalSecondaryBuffer->lpVtbl->Lock(
-                        GlobalSecondaryBuffer,
-                        ByteToLock,
-                        BytesToWrite,
-                        &Region1, &Region1Size,
-                        &Region2, &Region2Size, 0);
-
-                    int16 *SampleOut;
-                    if (!SoundIsPlaying && SUCCEEDED(ErrorCode))
-                    {
-                        // TODO: Assert Region(1|2)Size is valid
-                        SampleOut = (int16 *)Region1;
-
-                        DWORD Region1SampleCount = Region1Size / BytesPerSample;
-                        for (DWORD SampleIndex = 0;
-                             SampleIndex < Region1SampleCount;
-                             ++SampleIndex)
-                        {
-                            real32 t = 2.0f*Pi*((real32)RunningSampleIndex / (real32)WavePeriod);
-                            real32 SineValue = sinf(t);
-                            int16 SampleValue = (int16)(SineValue * WaveVolume);// ((RunningSampleIndex++ / HalfWavePeriod) % 2) ? WaveVolume: -WaveVolume;
-                            *SampleOut++ = SampleValue;
-                            *SampleOut++ = SampleValue;
-                            ++RunningSampleIndex;
-                        }
-
-                        SampleOut = (int16 *)Region2;
-
-                        DWORD Region2SampleCount = Region2Size / BytesPerSample;
-                        for (DWORD SampleIndex = 0;
-                             SampleIndex < Region2SampleCount;
-                             ++SampleIndex)
-                        {
-                            real32 t = 2.0f*Pi*((real32)RunningSampleIndex / (real32)WavePeriod);
-                            real32 SineValue = sinf(t);
-                            int16 SampleValue = (int16)(SineValue * WaveVolume);// ((RunningSampleIndex++ / HalfWavePeriod) % 2) ? WaveVolume: -WaveVolume;
-                            *SampleOut++ = SampleValue;
-                            *SampleOut++ = SampleValue;
-                            ++RunningSampleIndex;
-                        }
-
-                        GlobalSecondaryBuffer->lpVtbl->Unlock(
-                            GlobalSecondaryBuffer,
-                            Region1, Region1Size,
-                            Region2, Region2Size
-                        );
-                    }
-                    else
-                    {
-                        OutputDebugString("Failed to Lock DirectSound SecondaryBuffer");
-                    }
-
-                    if(!SoundIsPlaying)
-                    {
-                        IDirectSoundBuffer_Play(GlobalSecondaryBuffer, 0, 0, DSBPLAY_LOOPING);
-                        SoundIsPlaying = true;
-                    }
+                    Win32FillSoundBuffer(&SineWave, ByteToLock, BytesToWrite);
                 }
 
                 RenderGradient(GlobalBackbuffer);
