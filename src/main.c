@@ -3,6 +3,8 @@
 #include <stdint.h>
 #include <xinput.h>
 #include <dsound.h>
+
+// TODO: implement sine
 #include <math.h>
 
 // Rename static for different use case readability
@@ -81,8 +83,6 @@ global_variable win32_backbuffer GlobalBackbuffer;
 global_variable int GlobalXOffset = 0;
 global_variable int GlobalYOffset = 0;
 global_variable LPDIRECTSOUNDBUFFER GlobalSecondaryBuffer;
-
-global_variable uint32 RunningSampleIndex = 0;
 
 internal_function void
 Win32InitDirectSound(HWND Window, int32 SamplesPerSecond, int32 BufferSize)
@@ -361,6 +361,9 @@ typedef struct
     int WavePeriod;
     int HalfWavePeriod;
     int BufferSize;
+    // Where we are in the Sine wave
+    real32 tSine;
+    uint32 RunningSampleIndex;
 } win32_sound_output;
 
 void Win32FillSoundBuffer(win32_sound_output *SoundOutput, DWORD ByteToLock, DWORD BytesToWrite)
@@ -390,12 +393,16 @@ void Win32FillSoundBuffer(win32_sound_output *SoundOutput, DWORD ByteToLock, DWO
              SampleIndex < Region1SampleCount;
              ++SampleIndex)
         {
-            real32 t = 2.0f * PI * ((real32)RunningSampleIndex / (real32)SoundOutput->WavePeriod);
-            real32 SineValue = sinf(t);
+            real32 SineValue = sinf(SoundOutput->tSine);
             int16 SampleValue = (int16)(SineValue * SoundOutput->WaveVolume); // ((RunningSampleIndex++ / HalfWavePeriod) % 2) ? WaveVolume: -WaveVolume;
             *SampleOut++ = SampleValue;
             *SampleOut++ = SampleValue;
-            ++RunningSampleIndex;
+
+            // This re-computes where we are in the SineWave every time, due to dividing by WavePeriod every time:
+            //    real32 t = 2.0f * PI * ((real32)SoundOutput->RunningSampleIndex / (real32)SoundOutput->WavePeriod);
+            // Instead, incriment by the current WavePeriod
+            SoundOutput->tSine += 2.0f*PI*1.0f / (real32)SoundOutput->WavePeriod;
+            ++SoundOutput->RunningSampleIndex;
         }
 
         SampleOut = (int16 *)Region2;
@@ -405,12 +412,16 @@ void Win32FillSoundBuffer(win32_sound_output *SoundOutput, DWORD ByteToLock, DWO
              SampleIndex < Region2SampleCount;
              ++SampleIndex)
         {
-            real32 t = 2.0f * PI * ((real32)RunningSampleIndex / (real32)SoundOutput->WavePeriod);
-            real32 SineValue = sinf(t);
+            // This re-computes where we are in the SineWave every time, due to dividing by WavePeriod every time
+            // real32 t = 2.0f * PI * ((real32)SoundOutput->RunningSampleIndex / (real32)SoundOutput->WavePeriod);
+
+            real32 SineValue = sinf(SoundOutput->tSine);
             int16 SampleValue = (int16)(SineValue * SoundOutput->WaveVolume); // ((RunningSampleIndex++ / HalfWavePeriod) % 2) ? WaveVolume: -WaveVolume;
             *SampleOut++ = SampleValue;
             *SampleOut++ = SampleValue;
-            ++RunningSampleIndex;
+
+            SoundOutput->tSine += 2.0f*PI*1.0f / (real32)SoundOutput->WavePeriod;
+            ++SoundOutput->RunningSampleIndex;
         }
 
         GlobalSecondaryBuffer->lpVtbl->Unlock(
@@ -470,6 +481,7 @@ WinMain(HINSTANCE Instance,
 
             win32_sound_output SineWave;
 
+            SineWave.RunningSampleIndex = 0;
             SineWave.SamplesPerSecond = 48000;
             SineWave.BytesPerSample = sizeof(int16) * 2; // 32bit samples, 16 bit chunks to form square waves
             SineWave.WaveVolume = 3000;
@@ -491,6 +503,7 @@ WinMain(HINSTANCE Instance,
             int SquareWavePeriod = SamplesPerSecond / Hz;
             int HalfSquareWavePeriod = SquareWavePeriod / 2;
             */
+
             // uint to wrap back to 0, goes up forever
             // Handle message queue
             while (GlobalRunning)
@@ -554,7 +567,7 @@ WinMain(HINSTANCE Instance,
                 if (SUCCEEDED(IDirectSoundBuffer_GetCurrentPosition(GlobalSecondaryBuffer, &PlayCursor, &WriteCursor)))
                 {
                     // Where in the buffer is the RunningSampleIndex (to lock)
-                    DWORD ByteToLock = (RunningSampleIndex * SineWave.BytesPerSample) % SineWave.BufferSize;
+                    DWORD ByteToLock = (SineWave.RunningSampleIndex * SineWave.BytesPerSample) % SineWave.BufferSize;
                     DWORD BytesToWrite;
 
                     /*
@@ -567,7 +580,6 @@ WinMain(HINSTANCE Instance,
 
                         |222*------------*11111111111|
                             ^Play        ^ByteToLock
-
 
                         - ByteToLock < PlayCursor:
 
@@ -600,6 +612,7 @@ WinMain(HINSTANCE Instance,
                         |2222|111| Buffer
 
                     */
+                    // Change to use a lower latency offset from the playcursor for soundeffects
                     if (ByteToLock == PlayCursor)
                     {
                         BytesToWrite = 0;
